@@ -225,8 +225,15 @@
         let gameOver = false;
         let isPaused = false;
         let dropCounter = 0;
+        let baseDropInterval = 1000;
         let dropInterval = 1000;
         let lastTime = 0;
+        let softDropActive = false;
+        let speedBoostSteps = 0;
+        let lastSpeedupTime = 0;
+        const SPEEDUP_INTERVAL = 30000;
+        const SPEEDUP_STEP = 50;
+        const SOFT_DROP_INTERVAL = 50;
 
         // 方块颜色
         const COLORS = [
@@ -386,9 +393,42 @@
                 
                 // 每消除10行升一级
                 level = Math.floor(lines / 10) + 1;
-                dropInterval = Math.max(100, 1000 - (level - 1) * 100);
+                updateDropInterval();
                 
                 updateScore();
+            }
+            return linesCleared;
+        }
+
+        // 消除后应用重力，让方块独立下落
+        function applyGravity() {
+            for (let col = 0; col < COLS; col++) {
+                const stack = [];
+                for (let row = ROWS - 1; row >= 0; row--) {
+                    if (board[row][col]) {
+                        stack.push(board[row][col]);
+                        board[row][col] = 0;
+                    }
+                }
+                for (let row = ROWS - 1; row >= 0; row--) {
+                    if (stack.length === 0) break;
+                    board[row][col] = stack.shift();
+                }
+            }
+        }
+
+        function updateDropInterval() {
+            baseDropInterval = Math.max(100, 1000 - (level - 1) * 100);
+            const boostedInterval = baseDropInterval - speedBoostSteps * SPEEDUP_STEP;
+            dropInterval = Math.max(50, boostedInterval);
+        }
+
+        function updateSpeedByTime(currentTime) {
+            if (currentTime - lastSpeedupTime >= SPEEDUP_INTERVAL) {
+                const steps = Math.floor((currentTime - lastSpeedupTime) / SPEEDUP_INTERVAL);
+                speedBoostSteps += steps;
+                lastSpeedupTime += steps * SPEEDUP_INTERVAL;
+                updateDropInterval();
             }
         }
 
@@ -439,7 +479,10 @@
                 currentPiece.y++;
             } else {
                 merge(currentPiece);
-                clearLines();
+                const clearedLines = clearLines();
+                if (clearedLines > 0) {
+                    applyGravity();
+                }
                 currentPiece = nextPiece;
                 nextPiece = createPiece(PIECES_ARRAY[Math.floor(Math.random() * PIECES_ARRAY.length)]);
                 drawNextPiece();
@@ -460,7 +503,10 @@
             lastTime = time;
             dropCounter += deltaTime;
 
-            if (dropCounter > dropInterval) {
+            updateSpeedByTime(time);
+
+            const currentInterval = softDropActive ? SOFT_DROP_INTERVAL : dropInterval;
+            if (dropCounter > currentInterval) {
                 drop();
             }
 
@@ -498,7 +544,7 @@
                 }
             } else if (event.key === 'ArrowDown' || event.key === 's' || event.key === 'S') {
                 event.preventDefault();
-                drop();
+                softDropActive = true;
             } else if (event.key === 'ArrowUp' || event.key === 'w' || event.key === 'W') {
                 event.preventDefault();
                 rotate(currentPiece);
@@ -506,6 +552,12 @@
 
             drawBoard();
             drawPiece(currentPiece);
+        });
+
+        document.addEventListener('keyup', event => {
+            if (event.key === 'ArrowDown' || event.key === 's' || event.key === 'S') {
+                softDropActive = false;
+            }
         });
 
         // 显示游戏结束
@@ -523,7 +575,11 @@
             gameOver = false;
             isPaused = false;
             dropCounter = 0;
+            baseDropInterval = 1000;
             dropInterval = 1000;
+            softDropActive = false;
+            speedBoostSteps = 0;
+            lastSpeedupTime = performance.now();
             
             document.getElementById('gameOver').classList.remove('show');
             updateScore();
@@ -542,6 +598,7 @@
             nextPiece = createPiece(PIECES_ARRAY[Math.floor(Math.random() * PIECES_ARRAY.length)]);
             drawNextPiece();
             updateScore();
+            lastSpeedupTime = performance.now();
             requestAnimationFrame(update);
         }
 
